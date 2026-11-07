@@ -58,6 +58,9 @@ Future<void> main() async {
       await trayManager.setIcon(Platform.isWindows
           ? 'assets/icons/tray_icon.ico'
           : 'assets/icons/tray_icon.png');
+      try {
+        await trayManager.setToolTip('Dynamic Island');
+      } catch (_) {}
       await trayManager.setContextMenu(Menu(items: [
         MenuItem(key: 'show', label: 'Show Dynamic Island'),
         MenuItem(key: 'dnd', label: 'Toggle DND'),

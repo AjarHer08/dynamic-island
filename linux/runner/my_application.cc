@@ -45,11 +45,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "dynamic_island");
+    gtk_header_bar_set_title(header_bar, "Dynamic Island");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "dynamic_island");
+    gtk_window_set_title(window, "Dynamic Island");
   }
 
   // --- Dynamic Island: overlay transparan tanpa dekorasi ---
@@ -112,7 +112,8 @@ static gboolean my_application_local_command_line(GApplication* application,
 static void my_application_startup(GApplication* application) {
   // MyApplication* self = MY_APPLICATION(object);
 
-  // Perform any actions required at application startup.
+  // Nama yang tampil di tray / task manager.
+  g_set_application_name("Dynamic Island");
 
   G_APPLICATION_CLASS(my_application_parent_class)->startup(application);
 }
