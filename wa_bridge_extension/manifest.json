@@ -1,0 +1,18 @@
+{
+  "manifest_version": 2,
+  "name": "Dynamic Island WA Bridge",
+  "version": "1.0",
+  "description": "Kirim balasan WhatsApp Web dari Dynamic Island tanpa membuka tab/jendela.",
+  "permissions": ["tabs", "*://web.whatsapp.com/*"],
+  "background": { "scripts": ["background.js"] },
+  "content_scripts": [
+    {
+      "matches": ["*://web.whatsapp.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": { "id": "wa-bridge@dynamicisland.local" }
+  }
+}
