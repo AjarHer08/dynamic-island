@@ -1,57 +1,54 @@
-# Dynamic Island
+# Dynamic Island untuk Windows
 
-Dynamic Island untuk desktop Linux & Windows, dibuat dengan Flutter. Ringan (dioptimalkan untuk RAM 4 GB / Intel HD).
+Overlay "pill" ala Dynamic Island untuk Windows 10/11: musik, notifikasi, baterai, performa (CPU/RAM/GPU), kalender, cuaca, alarm, dan tema Liquid Glass.
+Developer: **AjarHer08**
 
-**Developer:** [AjarHer08](https://github.com/AjarHer08)
+## Pasang (pengguna biasa)
+1. Unduh `dynamic-island-<versi>-setup.exe` dari halaman [Releases](https://github.com/AjarHer08/dynamic-island/releases).
+2. Jalankan installer, ikuti langkahnya.
+3. Buka **Dynamic Island** dari Start Menu. Ikonnya muncul di tray (kanan bawah). Klik kanan tray untuk **Show / DND / Exit**.
 
-## Fitur
+> Jika Windows SmartScreen memperingatkan: klik **More info > Run anyway** (installer belum ditandatangani).
 
-- Pill kecil di atas layar yang membesar menjadi panel: musik + visualizer, lirik, notifikasi, cuaca & alarm, kalender, pengingat/DND, baterai, performa, dan pengaturan.
-- **Liquid Glass**: efek kaca yang bisa dipadukan dengan gaya iOS 17, macOS Notch, Material You, maupun Gaming (sakelar di Pengaturan).
-- **Performa**: CPU, RAM, dan GPU (NVIDIA, AMD, Intel) beserta riwayat CPU.
-- **Baterai** laptop tampil langsung di pill.
-- **Balas pesan** dari notifikasi. WhatsApp Web di Firefox dikirim langsung lewat ekstensi
-  `wa_bridge_extension` (lihat README di dalamnya) tanpa membuka browser.
+## Fitur khusus Windows
+- Sembunyi otomatis saat tidak dipakai, dan **seketika** saat aplikasi layar penuh (film, anime, YouTube fullscreen, game).
+- Baterai laptop dan perangkat Bluetooth, performa CPU/RAM/GPU.
+- Cek pembaruan otomatis ke GitHub (bisa dimatikan di Pengaturan).
 
-## Menjalankan
+Belum tersedia di Windows: kontrol musik (MPRIS hanya Linux), balas pesan WA Web via xdotool.
 
-```bash
+## Build dari source
+Kebutuhan:
+- Flutter SDK (mis. `D:\flutter`) dan tambahkan `...\flutter\bin` ke PATH
+- Visual Studio Build Tools 2022: workload **Desktop development with C++** (MSVC v142, CMake, Windows 10/11 SDK). Pasang dengan PowerShell **Administrator**
+- Windows **Developer Mode** aktif (Settings > For developers), untuk symlink
+- Inno Setup 6 (`winget install JRSoftware.InnoSetup`)
+
+Jalankan satu per satu:
+```powershell
+cd D:\dynamic_island
 flutter pub get
-flutter run -d linux      # atau: flutter run -d windows
+flutter run -d windows
+```
+Buat installer:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
+```
+Hasil: `dist\dynamic-island-<versi>-setup.exe`
+
+Jika `iscc` tidak ditemukan (Inno Setup terpasang per-user):
+```powershell
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer\dynamic_island.iss
 ```
 
-Linux: `sudo apt install xdotool` (dipakai untuk balas pesan ke aplikasi desktop, X11).
+## Masalah umum
+| Masalah | Solusi |
+|---|---|
+| `flutter` tidak dikenali | Tambahkan folder `bin` Flutter ke PATH, buka PowerShell baru |
+| Error symlink saat `pub get` | Aktifkan Developer Mode |
+| Error VS / CMake tidak ada | Modify Build Tools, centang workload C++, jalankan sebagai Admin |
+| Island tidak terlihat | Mungkin tersembunyi otomatis: gerakkan kursor ke posisinya atau tray > Show |
+| Island hilang saat nonton | Itu fitur; matikan di Pengaturan > "Sembunyi seketika saat nonton" |
 
-## Fitur tambahan
-
-- **Geser kiri/kanan** untuk pindah tab (mouse, touchpad, atau sentuh); ikon tab tetap bisa diklik.
-- **Kalender** bulanan dengan penanda alarm.
-- **Baterai**: laptop (`/sys/class/power_supply`) dan perangkat Bluetooth (BlueZ `Battery1`).
-  Bila headset tidak melaporkan baterai, aktifkan `Experimental = true` di
-  `/etc/bluetooth/main.conf` lalu `sudo systemctl restart bluetooth`.
-- **Balas pesan** dari tab Notifikasi: teks disalin, jendela aplikasi (WhatsApp/Telegram/LINE/dll)
-  diaktifkan dan ditempel lewat `xdotool` (`sudo apt install xdotool`, X11). Enter otomatis
-  bisa dinyalakan di Settings.
-- **Ukuran & sudut** pill/panel diatur lewat Settings.
-
-## Membuat installer
-
-- **Linux (.deb):** `bash scripts/build_deb.sh` → `dist/dynamic-island_<versi>_amd64.deb`
-- **Windows (.exe):** di Windows, `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1`
-  → `dist\dynamic-island-<versi>-setup.exe` (butuh Inno Setup 6)
-- **Otomatis:** push tag `v*` dan workflow `.github/workflows/release.yml` membuat keduanya
-  lalu melampirkannya ke GitHub Release.
-
-## Musik offline (file lokal)
-
-- File tanpa tag tetap tampil: judul/artis diambil dari nama file (`01 - Artis - Judul.mp3`).
-- Cover diambil dari folder lagu (`cover.jpg`, `folder.png`, dll.).
-- Lirik offline: taruh `NamaLagu.lrc` (tersinkron) atau `NamaLagu.txt` di folder yang sama dengan lagunya.
-- Lirik yang sudah pernah dicari online disimpan di cache (`~/.cache/dynamic_island/lyrics`),
-  jadi tetap muncul saat internet mati.
-- Pembacaan musik memakai MPRIS, jadi baru jalan di Linux (VLC, Rhythmbox, Spotify, dll.).
-
-## Pembaruan & sembunyi otomatis (v1.1.0)
-- **Cek pembaruan**: memeriksa rilis terbaru di `github.com/AjarHer08/dynamic-island` (Pengaturan). Jika repo/rilis belum ada, tampil "Belum ada rilis".
-- **Sembunyi saat tidak dipakai**: hilang setelah N detik; muncul lagi saat ada notifikasi/alarm, kursor diarahkan ke posisi island, atau menu tray > Show.
-- **Sembunyi seketika saat nonton**: layar penuh (Windows: SHQueryUserNotificationState; Linux X11: butuh `xprop`, paket `x11-utils`) atau video terdeteksi lewat MPRIS (VLC/mpv/browser). Alarm tetap muncul.
+## Hapus
+Settings > Apps > Dynamic Island > Uninstall.
