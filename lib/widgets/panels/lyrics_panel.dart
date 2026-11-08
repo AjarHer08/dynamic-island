@@ -33,7 +33,8 @@ class _LyricsPanelState extends State<LyricsPanel> {
     final l10n = AppLocalizations.of(context)!;
     final settings = context.watch<SettingsProvider>();
     final showTr = lyrics.hasTranslation;
-    final h = showTr ? 58.0 : 34.0; // tinggi tiap baris lirik
+    final showRo = lyrics.hasRomaji;
+    final h = 34.0 + (showRo ? 20 : 0) + (showTr ? 24 : 0); // tinggi tiap baris
 
     Widget message(String text, {bool spinner = false}) => Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -76,6 +77,16 @@ class _LyricsPanelState extends State<LyricsPanel> {
                     style: t.titleStyle.copyWith(
                         fontSize: 13, height: 1.6, fontWeight: FontWeight.w400)),
               ),
+              if (lyrics.romajiAt(i) != null)
+                SizedBox(
+                  width: double.infinity,
+                  child: Text(lyrics.romajiAt(i)!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.4,
+                          color: Colors.white.withValues(alpha: 0.6))),
+                ),
               if (lyrics.translationAt(i) != null)
                 SizedBox(
                   width: double.infinity,
@@ -118,6 +129,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
               final current = i == idx;
               final opacity = current ? 1.0 : (d == 1 ? 0.6 : (d == 2 ? 0.4 : 0.25));
               final tl = lyrics.translationAt(i);
+              final ro = lyrics.romajiAt(i);
               return Center(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
@@ -131,6 +143,17 @@ class _LyricsPanelState extends State<LyricsPanel> {
                             .withValues(alpha: opacity),
                       ),
                     ),
+                    if (ro != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          ro,
+                          style: TextStyle(
+                            fontSize: current ? 12.5 : 10.5,
+                            color: Colors.white.withValues(alpha: opacity * 0.7),
+                          ),
+                        ),
+                      ),
                     if (tl != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),

@@ -28,6 +28,7 @@ class SettingsProvider extends ChangeNotifier {
   bool _hideOnVideo = true;
   bool _autoUpdate = true;
   bool _lyricsTranslate = true;
+  bool _lyricsRomaji = true;
   String _lyricsLang = 'auto'; // 'auto' = ikut bahasa aplikasi
   bool _glass = true; // efek liquid glass, bisa dipadukan dengan gaya apa pun
   Timer? _saveTimer;
@@ -55,6 +56,7 @@ class SettingsProvider extends ChangeNotifier {
   bool get hideOnVideo => _hideOnVideo;
   bool get autoUpdate => _autoUpdate;
   bool get lyricsTranslate => _lyricsTranslate;
+  bool get lyricsRomaji => _lyricsRomaji;
   String get lyricsLangSetting => _lyricsLang;
 
   /// Bahasa tujuan terjemahan lirik (kode ISO, mis. 'id', 'en', 'zh-CN').
@@ -118,6 +120,7 @@ class SettingsProvider extends ChangeNotifier {
     _autoUpdate = p.getBool('auto_update') ?? true;
     _lyricsTranslate = p.getBool('lyrics_translate') ?? true;
     _lyricsLang = p.getString('lyrics_lang') ?? 'auto';
+    _lyricsRomaji = p.getBool('lyrics_romaji') ?? true;
     // Set ukuran pill secara eksplisit, lalu posisikan berdasarkan ukuran itu
     // (jangan bergantung pada getSize yang bisa belum terbarui).
     final t = theme;
@@ -224,6 +227,13 @@ class SettingsProvider extends ChangeNotifier {
     _lyricsTranslate = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool('lyrics_translate', v);
+    notifyListeners();
+  }
+
+  Future<void> setLyricsRomaji(bool v) async {
+    _lyricsRomaji = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('lyrics_romaji', v);
     notifyListeners();
   }
 

@@ -152,6 +152,12 @@ class _SettingsPanelState extends State<SettingsPanel> {
               const SizedBox(height: 8),
             ],
             _switchRow(
+                tr(context, 'Tampilkan romaji (lagu Jepang)',
+                    'Show romaji (Japanese songs)'),
+                s.lyricsRomaji,
+                s.setLyricsRomaji,
+                t),
+            _switchRow(
                 tr(context, 'Cek pembaruan otomatis', 'Check for updates automatically'),
                 s.autoUpdate,
                 s.setAutoUpdate,

@@ -39,10 +39,24 @@ class LyricsProvider extends ChangeNotifier {
   bool _translating = false;
   List<String> _trLines = const [];
 
+  // ---- romaji (lagu Jepang) ----
+  int _roGen = 0;
+  bool _romanizing = false;
+  List<String> _roLines = const [];
+
   LyricsState get state => _state;
   List<LyricLine> get lines => _lines;
   String get plain => _plain;
   bool get translating => _translating;
+  bool get romanizing => _romanizing;
+  bool get hasRomaji => _roLines.any((e) => e.trim().isNotEmpty);
+
+  /// Romaji untuk baris ke-[i] (hanya lagu Jepang), atau null.
+  String? romajiAt(int i) {
+    if (i < 0 || i >= _roLines.length) return null;
+    final t = _roLines[i].trim();
+    return t.isEmpty ? null : t;
+  }
 
   /// Baris lirik polos (untuk mode non-sinkron).
   List<String> get plainLines => _plain.split('\n');
@@ -64,14 +78,16 @@ class LyricsProvider extends ChangeNotifier {
 
   String _curKey() {
     final s = _settings;
-    return s == null ? '' : '${s.lyricsTranslate}|${s.lyricsTargetLang}';
+    return s == null
+        ? ''
+        : '${s.lyricsTranslate}|${s.lyricsTargetLang}|${s.lyricsRomaji}';
   }
 
   void _onSettings() {
     final k = _curKey();
     if (k == _trKey) return;
     _trKey = k;
-    _translateCurrent();
+    _refreshExtras();
   }
 
   void bind(MusicProvider m) {
@@ -93,6 +109,9 @@ class LyricsProvider extends ChangeNotifier {
         _trGen++;
         _trLines = const [];
         _translating = false;
+        _roGen++;
+        _roLines = const [];
+        _romanizing = false;
         notifyListeners();
       }
       return;
@@ -169,7 +188,7 @@ class LyricsProvider extends ChangeNotifier {
         _state = LyricsState.plain;
       }
       notifyListeners();
-      _translateCurrent();
+      _refreshExtras();
       return true;
     }
     return false;
@@ -232,6 +251,9 @@ class LyricsProvider extends ChangeNotifier {
     _trGen++;
     _trLines = const [];
     _translating = false;
+    _roGen++;
+    _roLines = const [];
+    _romanizing = false;
     notifyListeners();
 
     final track = _cleanTitle(title);
@@ -310,7 +332,7 @@ class LyricsProvider extends ChangeNotifier {
       }
     }
     notifyListeners();
-    _translateCurrent();
+    _refreshExtras();
   }
 
   // ---------------------------------------------------------------------
@@ -329,6 +351,122 @@ class LyricsProvider extends ChangeNotifier {
       h = ((h * 33) ^ c) & 0x7fffffff;
     }
     return h;
+  }
+
+  void _refreshExtras() {
+    _translateCurrent();
+    _romanizeCurrent();
+  }
+
+  List<String> _srcLines() {
+    if (_state == LyricsState.synced) return _lines.map((e) => e.text).toList();
+    if (_state == LyricsState.plain) return plainLines;
+    return const [];
+  }
+
+  static final _kanaRe = RegExp(r'[\u3040-\u30ff]');
+  static final _cjkRe = RegExp(r'[\u3040-\u30ff\u4e00-\u9fff]');
+
+  /// Romaji lagu Jepang: lagu dianggap Jepang jika memuat kana. Tiap baris
+  /// yang berisi huruf Jepang dibacakan lewat Google Translate (dt=rm).
+  Future<void> _romanizeCurrent() async {
+    final id = ++_roGen;
+    final s = _settings;
+    final src = _srcLines();
+    final isJa = src.any(_kanaRe.hasMatch);
+    if (s == null || !s.lyricsRomaji || !isJa) {
+      if (_romanizing || _roLines.isNotEmpty) {
+        _romanizing = false;
+        _roLines = const [];
+        notifyListeners();
+      }
+      return;
+    }
+    _roLines = const [];
+    _romanizing = true;
+    notifyListeners();
+
+    List<String>? result;
+    try {
+      final key = 'ro|${_hash(src.join('\n'))}|${src.length}';
+      final cache = _trCacheFile(key);
+      if (cache != null) {
+        final t = await _readText(cache.path);
+        if (t != null) {
+          try {
+            final j = jsonDecode(t);
+            if (j is List && j.length == src.length) {
+              result = j.map((e) => '$e').toList();
+            }
+          } catch (_) {}
+        }
+      }
+      if (result == null) {
+        final out = List<String>.filled(src.length, '');
+        final idx = [
+          for (var i = 0; i < src.length; i++)
+            if (_cjkRe.hasMatch(src[i])) i
+        ];
+        var ok = false;
+        for (var i = 0; i < idx.length; i += 4) {
+          if (id != _roGen) return;
+          final end = (i + 4 < idx.length) ? i + 4 : idx.length;
+          final got = await Future.wait(
+              [for (var k = i; k < end; k++) _romaji(src[idx[k]])]);
+          for (var k = 0; k < got.length; k++) {
+            if (got[k] != null) {
+              out[idx[i + k]] = got[k]!;
+              ok = true;
+            }
+          }
+        }
+        if (ok) {
+          result = out;
+          if (cache != null) {
+            try {
+              await cache.parent.create(recursive: true);
+              await cache.writeAsString(jsonEncode(out));
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {
+      result = null;
+    }
+    if (id != _roGen) return;
+    _romanizing = false;
+    _roLines = result ?? const [];
+    notifyListeners();
+  }
+
+  Future<String?> _romaji(String line) async {
+    final uri = Uri.https('translate.googleapis.com', '/translate_a/single', {
+      'client': 'gtx',
+      'sl': 'ja',
+      'tl': 'en',
+      'dt': ['t', 'rm'],
+      'dj': '0',
+    });
+    try {
+      final res = await http
+          .post(uri, headers: _headers, body: {'q': line.replaceAll('\n', ' ')})
+          .timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) return null;
+      final j = jsonDecode(utf8.decode(res.bodyBytes));
+      if (j is! List || j.isEmpty || j[0] is! List) return null;
+      // Entri transliterasi: [null, null, <romaji terjemahan>, <romaji sumber>]
+      final sb = StringBuffer();
+      for (final seg in j[0] as List) {
+        if (seg is List && seg.length > 3 && seg[0] == null && seg[3] is String) {
+          if (sb.isNotEmpty) sb.write(' ');
+          sb.write(seg[3] as String);
+        }
+      }
+      final r = sb.toString().trim();
+      return r.isEmpty ? null : r;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _translateCurrent() async {
