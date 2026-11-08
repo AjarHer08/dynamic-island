@@ -22,6 +22,7 @@ class _NotificationPanelState extends State<NotificationPanel> {
   final _ctrl = TextEditingController();
   String? _replyId; // pesan yang sedang dibalas
   bool _sending = false;
+  bool _focusReply = false; // fokus otomatis hanya saat dibuka oleh pengguna
   String? _status;
 
   @override
@@ -30,8 +31,15 @@ class _NotificationPanelState extends State<NotificationPanel> {
     // Pill diketuk saat ada pesan baru -> langsung buka kolom balas pesan itu.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final id = context.read<NotificationProvider>().takeReplyRequest();
-      if (id != null) _openReply(id);
+      final notif = context.read<NotificationProvider>();
+      final id = notif.takeReplyRequest();
+      if (id != null) {
+        _openReply(id);
+      } else {
+        // Seperti gambar referensi: kolom balas pesan terbaru langsung terbuka.
+        final msgs = notif.queue.where((e) => e.kind == NotifKind.message);
+        if (msgs.isNotEmpty) setState(() => _replyId = msgs.first.id);
+      }
     });
   }
 
@@ -43,6 +51,7 @@ class _NotificationPanelState extends State<NotificationPanel> {
 
   void _openReply(String id) {
     setState(() {
+      _focusReply = true;
       _replyId = _replyId == id ? null : id;
       _ctrl.clear();
       _status = null;
@@ -110,67 +119,98 @@ class _NotificationPanelState extends State<NotificationPanel> {
       ];
 
   Widget _replyBox(AppNotification n, IslandTheme t) {
+    final quick = _quick(context);
+    final onAccent =
+        t.accentColor.computeLuminance() > 0.6 ? Colors.black87 : Colors.white;
+    OutlineInputBorder border(Color c) => OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: c, width: 1));
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(
             child: TextField(
               controller: _ctrl,
-              autofocus: true,
+              autofocus: _focusReply,
               enabled: !_sending,
-              style: t.titleStyle.copyWith(fontSize: 12),
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              cursorColor: t.accentColor,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _send(n),
               decoration: InputDecoration(
-                hintText: tr(context, 'Balas ${n.sender}...',
-                    'Reply to ${n.sender}...'),
-                hintStyle: t.subtitleStyle,
+                hintText: tr(context, 'Ketik balasan...', 'Type a reply...'),
+                hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
                 isDense: true,
                 filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.08),
+                fillColor: Colors.black.withValues(alpha: 0.25),
                 contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                border: border(Colors.white.withValues(alpha: 0.12)),
+                enabledBorder: border(Colors.white.withValues(alpha: 0.12)),
+                focusedBorder: border(t.accentColor.withValues(alpha: 0.7)),
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           GestureDetector(
             onTap: () => _send(n),
-            child: _sending
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : Icon(Icons.send, size: 18, color: t.accentColor),
+            child: Container(
+              width: 46,
+              height: 40,
+              decoration: BoxDecoration(
+                color: t.accentColor,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                      color: t.accentColor.withValues(alpha: 0.35),
+                      blurRadius: 8)
+                ],
+              ),
+              child: _sending
+                  ? Padding(
+                      padding: const EdgeInsets.all(11),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: onAccent))
+                  : Icon(Icons.send, size: 19, color: onAccent),
+            ),
           ),
         ]),
-        const SizedBox(height: 6),
-        Wrap(spacing: 6, runSpacing: 4, children: [
-          for (final q in _quick(context))
-            GestureDetector(
-              onTap: () {
-                _ctrl.text = q;
-                _ctrl.selection = TextSelection.collapsed(offset: q.length);
-              },
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.07),
-                  borderRadius: BorderRadius.circular(12),
+        const SizedBox(height: 10),
+        Row(children: [
+          for (var i = 0; i < quick.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  _ctrl.text = quick[i];
+                  _ctrl.selection =
+                      TextSelection.collapsed(offset: quick[i].length);
+                },
+                child: Container(
+                  height: 34,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.07),
+                    borderRadius: BorderRadius.circular(17),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.16), width: 1),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(quick[i],
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 12.5)),
+                  ),
                 ),
-                child: Text(q,
-                    style: const TextStyle(color: Colors.white70, fontSize: 10)),
               ),
             ),
+          ],
         ]),
         if (_status != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.only(top: 8),
             child: Text(_status!,
                 style: t.subtitleStyle
                     .copyWith(fontSize: 10, color: Colors.orangeAccent)),
@@ -187,99 +227,130 @@ class _NotificationPanelState extends State<NotificationPanel> {
     final t = settings.theme;
 
     return Padding(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Icon(Icons.notifications_active, size: 14, color: t.accentColor),
-            const SizedBox(width: 6),
-            Text(l10n.notifications,
-                style: t.subtitleStyle.copyWith(letterSpacing: 1)),
-            const Spacer(),
-            if (notif.queue.isNotEmpty) ...[
-              Text('${notif.queue.length}',
-                  style: t.subtitleStyle.copyWith(color: t.accentColor)),
-              const SizedBox(width: 10),
-              GestureDetector(
-                onTap: notif.clear,
-                child: Text(l10n.clearAll,
-                    style: t.subtitleStyle.copyWith(fontSize: 10)),
-              ),
-            ],
-          ]),
-          const SizedBox(height: 10),
+          if (notif.queue.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6, right: 4),
+              child: Row(children: [
+                const Spacer(),
+                Text('${notif.queue.length}',
+                    style: t.subtitleStyle.copyWith(color: t.accentColor)),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: notif.clear,
+                  child: Text(l10n.clearAll,
+                      style: t.subtitleStyle.copyWith(fontSize: 10)),
+                ),
+              ]),
+            ),
           Expanded(
             child: notif.queue.isEmpty
                 ? Center(child: Text(l10n.noNotifications, style: t.subtitleStyle))
                 : ListView.separated(
                     itemCount: notif.queue.length > 12 ? 12 : notif.queue.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 6),
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (_, i) {
                       final n = notif.queue[i];
                       final isMsg = n.kind == NotifKind.message;
                       final initial =
                           n.sender.isEmpty ? '?' : n.sender[0].toUpperCase();
                       return Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
-                        decoration: cardDecoration(t, radius: 10),
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                        decoration: cardDecoration(t, radius: 18),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(children: [
-                              CircleAvatar(
-                                radius: 14,
-                                backgroundColor: n.kind.color,
-                                child: isMsg
-                                    ? Text(initial,
-                                        style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold))
-                                    : Icon(n.kind.icon,
-                                        size: 14, color: Colors.white),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                        n.app.isEmpty
-                                            ? n.sender
-                                            : '${n.sender}  ·  ${n.app}',
-                                        style:
-                                            t.titleStyle.copyWith(fontSize: 12),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis),
-                                    Text(n.body,
-                                        style: t.subtitleStyle,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                  '${twoDigits(n.time.hour)}:${twoDigits(n.time.minute)}',
-                                  style: t.subtitleStyle.copyWith(fontSize: 9)),
-                              if (isMsg) ...[
-                                const SizedBox(width: 8),
-                                GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () => _openReply(n.id),
-                                  child: Icon(Icons.reply,
-                                      size: 18,
-                                      color: _replyId == n.id
-                                          ? t.accentColor
-                                          : Colors.white54),
-                                ),
-                              ],
-                            ]),
+                            Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: n.kind.color,
+                                    child: isMsg
+                                        ? Text(initial,
+                                            style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.w500))
+                                        : Icon(n.kind.icon,
+                                            size: 20, color: Colors.white),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(n.sender,
+                                            style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis),
+                                        const SizedBox(height: 2),
+                                        Text(n.body,
+                                            style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                height: 1.3),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis),
+                                        if (n.app.isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Text(n.app,
+                                              style: t.subtitleStyle
+                                                  .copyWith(fontSize: 12),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                            '${twoDigits(n.time.hour)}:${twoDigits(n.time.minute)}',
+                                            style: t.subtitleStyle
+                                                .copyWith(fontSize: 11)),
+                                        if (isMsg) ...[
+                                          const SizedBox(height: 8),
+                                          GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: () => _openReply(n.id),
+                                            child: Container(
+                                              width: 38,
+                                              height: 38,
+                                              decoration: BoxDecoration(
+                                                color: _replyId == n.id
+                                                    ? t.accentColor
+                                                        .withValues(alpha: 0.22)
+                                                    : Colors.white
+                                                        .withValues(alpha: 0.07),
+                                                borderRadius:
+                                                    BorderRadius.circular(11),
+                                                border: Border.all(
+                                                    color: _replyId == n.id
+                                                        ? t.accentColor
+                                                            .withValues(alpha: 0.6)
+                                                        : Colors.white
+                                                            .withValues(alpha: 0.18)),
+                                              ),
+                                              child: const Icon(Icons.reply,
+                                                  size: 20, color: Colors.white),
+                                            ),
+                                          ),
+                                        ],
+                                      ]),
+                                ]),
                             if (n.replied != null)
                               Padding(
-                                padding: const EdgeInsets.only(top: 6, left: 36),
+                                padding: const EdgeInsets.only(top: 6, left: 56),
                                 child: Row(children: [
                                   Icon(Icons.subdirectory_arrow_right,
                                       size: 12, color: t.accentColor),

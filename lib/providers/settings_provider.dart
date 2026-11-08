@@ -15,7 +15,7 @@ class SettingsProvider extends ChangeNotifier {
   Locale _locale = const Locale('en');
   VisualStyle _style = VisualStyle.macosNotch;
   IslandPosition _pos = IslandPosition.topCenter;
-  VisualizerMode _viz = VisualizerMode.circularWave;
+  VisualizerMode _viz = VisualizerMode.bars;
   double _opacity = 0.92;
   bool _autoLang = true;
   Color? _customAccent, _customBg;
@@ -101,7 +101,7 @@ class SettingsProvider extends ChangeNotifier {
     }
     _style = VisualStyle.values[_idx(p.getInt('visual_style'), VisualStyle.values.length, 1)];
     _pos = IslandPosition.values[_idx(p.getInt('island_position'), IslandPosition.values.length, 0)];
-    _viz = VisualizerMode.values[_idx(p.getInt('viz_mode'), VisualizerMode.values.length, 1)];
+    _viz = VisualizerMode.values[_idx(p.getInt('viz_mode'), VisualizerMode.values.length, 0)];
     _opacity = p.getDouble('opacity') ?? 0.92;
     final ca = p.getInt('c_accent'), cb = p.getInt('c_bg');
     _customAccent = ca == null ? null : Color(ca);

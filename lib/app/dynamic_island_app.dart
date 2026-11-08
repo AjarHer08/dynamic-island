@@ -230,6 +230,7 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
         await s.reposition(size: big);
         await windowManager.focus(); // supaya blur (klik di luar) terdeteksi
         if (mounted) _anim.forward();
+        _revealTab();
       } else {
         _appliedBig = null;
         // Animasi mengecil dulu, baru kecilkan window. Ukuran pill dibaca
@@ -404,6 +405,11 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(r),
                   child: CustomPaint(
+                    foregroundPainter: t.hud
+                        ? HudFramePainter(
+                            color: t.accentColor,
+                            visible: (_sizeAnim.value - 0.6) / 0.4)
+                        : null,
                     painter: LiquidGlassPainter(
                       radius: r,
                       tint: Color.lerp(
@@ -427,9 +433,17 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
                 // Tanpa boxShadow: window sama besar dengan island, jadi bayangan
                 // terpotong jadi kotak hitam di sekeliling pill.
                 borderRadius: BorderRadius.circular(r),
+                border: Border.all(
+                    color: t.accentColor.withValues(alpha: 0.35), width: 1),
               ),
               clipBehavior: Clip.antiAlias,
-              child: content,
+              child: t.hud
+                  ? CustomPaint(
+                      foregroundPainter: HudFramePainter(
+                          color: t.accentColor,
+                          visible: (_sizeAnim.value - 0.6) / 0.4),
+                      child: content)
+                  : content,
             ),
           );
         },
@@ -448,33 +462,36 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             SizedBox(
-              width: 44,
+              width: 58,
               height: 26,
               child: hasNotif
                   ? Icon(notif.active!.kind.icon,
-                      color: notif.active!.kind.color, size: 14)
+                      color: notif.active!.kind.color, size: 15)
                   : AdaptiveVisualizer(
                       spectrum: music.spectrum,
                       color: t.accentColor,
                       mode: vizMode, // ikut pilihan di Settings
                     ),
             ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: music.isPlaying ? t.accentColor : Colors.white24,
-                    shape: BoxShape.circle,
-                  ),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: music.isPlaying ? t.accentColor : t.accentColor.withValues(alpha: 0.55),
+                  shape: BoxShape.circle,
+                  boxShadow: music.isPlaying
+                      ? [BoxShadow(color: t.accentColor.withValues(alpha: 0.7), blurRadius: 6)]
+                      : null,
                 ),
-                const SizedBox(height: 3),
-                const LiveClock(
-                    style: TextStyle(color: Colors.white54, fontSize: 9)),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              const LiveClock(
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500)),
+            ]),
             _pillBattery(t),
           ],
         ),
@@ -505,69 +522,81 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
     );
   }
 
-  /// Baterai laptop di pill (saat island menutup). Hilang bila tidak ada baterai.
+  /// Baterai laptop di pill (saat island menutup): persen + ikon baterai.
+  /// Hilang bila tidak ada baterai.
   Widget _pillBattery(IslandTheme t) {
     return Consumer<BatteryProvider>(builder: (_, b, __) {
       final lap = b.laptop;
       if (lap == null) return const SizedBox.shrink();
       final chg = lap.state == PowerState.charging;
-      final color = batteryColor(lap.percent, chg, t);
+      final low = lap.percent <= 20 && !chg;
+      final fill = low
+          ? const Color(0xFFFF453A)
+          : (chg ? const Color(0xFF30D158) : Colors.white);
       return FittedBox(
         fit: BoxFit.scaleDown,
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(batteryIcon(lap.percent, chg), size: 13, color: color),
-          const SizedBox(width: 1),
           Text('${lap.percent}%',
-              style: TextStyle(
-                  color: color, fontSize: 9, fontWeight: FontWeight.w600)),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500)),
+          const SizedBox(width: 6),
+          _BatteryGlyph(percent: lap.percent, color: fill),
         ]),
       );
     });
   }
 
-  /// Panel expanded: tab bar + halaman yang bisa digeser kiri/kanan.
+  final _tabKeys = {for (final tab in _Tab.values) tab: GlobalKey()};
+
+  /// Geser strip tab supaya tab aktif selalu terlihat.
+  void _revealTab() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final c = _tabKeys[_tab]?.currentContext;
+      if (c == null) return;
+      Scrollable.ensureVisible(c,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic);
+    });
+  }
+
+  /// Panel expanded: strip tab teks + halaman yang bisa digeser kiri/kanan.
   Widget _expandedView(IslandTheme t) => Column(children: [
-        Container(
-          height: 38,
-          color: t.glass ? Colors.white.withValues(alpha: 0.04) : t.expandedColor,
-          child: Row(children: [
-            const SizedBox(width: 6),
-            Expanded(
-              child: Row(children: [
-                for (final tab in _Tab.values)
-                  Expanded(child: _tabButton(tab, t)),
-              ]),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 14, 8, 6),
+          child: Container(
+            height: 34,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
             ),
-            Consumer<BatteryProvider>(builder: (_, b, __) {
-              final lap = b.laptop;
-              if (lap == null) return const SizedBox(width: 4);
-              final chg = lap.state == PowerState.charging;
-              final color = batteryColor(lap.percent, chg, t);
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _goTo(_Tab.battery),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(batteryIcon(lap.percent, chg), size: 14, color: color),
-                    const SizedBox(width: 2),
-                    Text('${lap.percent}%',
-                        style: TextStyle(color: color, fontSize: 10)),
-                  ]),
+            child: Row(children: [
+              Expanded(
+                child: ScrollConfiguration(
+                  behavior: const _DragScrollBehavior(),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Row(children: [
+                      for (final tab in _Tab.values) _tabButton(tab, t),
+                    ]),
+                  ),
                 ),
-              );
-            }),
-            GestureDetector(
-              onTap: _toggle,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Icon(Icons.keyboard_arrow_up,
-                    color: Colors.white54, size: 18),
               ),
-            ),
-          ]),
+              GestureDetector(
+                onTap: _toggle,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6),
+                  child: Icon(Icons.keyboard_arrow_up,
+                      color: Colors.white54, size: 18),
+                ),
+              ),
+            ]),
+          ),
         ),
-        const Divider(height: 1, color: Colors.white10),
         Expanded(
           child: Container(
             color: t.glass ? Colors.transparent : t.expandedColor,
@@ -576,7 +605,10 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
               child: PageView.builder(
                 controller: _pc,
                 itemCount: _Tab.values.length,
-                onPageChanged: (i) => setState(() => _tab = _Tab.values[i]),
+                onPageChanged: (i) {
+                  setState(() => _tab = _Tab.values[i]);
+                  _revealTab();
+                },
                 itemBuilder: (_, i) => _panelFor(_Tab.values[i]),
               ),
             ),
@@ -584,31 +616,46 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
         ),
       ]);
 
+  String _tabLabel(_Tab tab) {
+    final id = _isId;
+    return switch (tab) {
+      _Tab.music => id ? 'musik' : 'music',
+      _Tab.lyrics => id ? 'lirik' : 'lyrics',
+      _Tab.notifications => id ? 'notifikasi' : 'notifications',
+      _Tab.weatherAlarm => id ? 'cuaca' : 'weather',
+      _Tab.calendar => id ? 'kalender' : 'calendar',
+      _Tab.reminderDnd => id ? 'pengingat' : 'reminders',
+      _Tab.battery => id ? 'baterai' : 'battery',
+      _Tab.performance => id ? 'performa' : 'performance',
+      _Tab.settings => id ? 'pengaturan' : 'settings',
+    };
+  }
+
   Widget _tabButton(_Tab tab, IslandTheme t) {
     final active = _tab == tab;
-    const icons = {
-      _Tab.music: Icons.music_note,
-      _Tab.lyrics: Icons.lyrics,
-      _Tab.notifications: Icons.notifications,
-      _Tab.weatherAlarm: Icons.wb_sunny,
-      _Tab.calendar: Icons.calendar_month,
-      _Tab.reminderDnd: Icons.event_note,
-      _Tab.battery: Icons.battery_full,
-      _Tab.performance: Icons.speed,
-      _Tab.settings: Icons.settings,
-    };
     return GestureDetector(
+      key: _tabKeys[tab],
       behavior: HitTestBehavior.opaque,
-      onTap: () => _goTo(tab),
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 1),
+      onTap: () {
+        _goTo(tab);
+        _revealTab();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 11),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: active ? t.accentColor.withValues(alpha: 0.15) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          color: active ? t.chipFill : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
         ),
-        child: Center(
-          child: Icon(icons[tab],
-              size: 15, color: active ? t.accentColor : Colors.white38),
+        child: Text(
+          _tabLabel(tab),
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+            color: active ? Colors.white : Colors.white60,
+          ),
         ),
       ),
     );
@@ -627,4 +674,52 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
       };
 
   double _lerp(double a, double b, double t) => a + (b - a) * t;
+}
+
+
+/// Ikon baterai bergaya gambar referensi: kotak bergaris, isi sesuai persen,
+/// dan kepala kecil di kanan.
+class _BatteryGlyph extends StatelessWidget {
+  const _BatteryGlyph({required this.percent, required this.color});
+  final int percent;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) =>
+      CustomPaint(size: const Size(26, 13), painter: _BatteryPainter(percent, color));
+}
+
+class _BatteryPainter extends CustomPainter {
+  _BatteryPainter(this.percent, this.color);
+  final int percent;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final body = Rect.fromLTWH(0.7, 0.7, size.width - 4, size.height - 1.4);
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(body, const Radius.circular(3.5)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4
+          ..color = color.withValues(alpha: 0.85));
+    final inner = body.deflate(2.2);
+    final w = inner.width * (percent.clamp(0, 100) / 100);
+    if (w > 0) {
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              Rect.fromLTWH(inner.left, inner.top, w, inner.height),
+              const Radius.circular(1.6)),
+          Paint()..color = color);
+    }
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(size.width - 2.6, size.height / 2 - 2.6, 2.4, 5.2),
+            const Radius.circular(1.2)),
+        Paint()..color = color.withValues(alpha: 0.85));
+  }
+
+  @override
+  bool shouldRepaint(covariant _BatteryPainter old) =>
+      old.percent != percent || old.color != color;
 }
