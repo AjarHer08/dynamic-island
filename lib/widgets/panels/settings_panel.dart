@@ -128,6 +128,30 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   style: t.subtitleStyle.copyWith(fontSize: 9)),
             ),
             _switchRow(
+                tr(context, 'Terjemahkan lirik lagu', 'Translate song lyrics'),
+                s.lyricsTranslate,
+                s.setLyricsTranslate,
+                t),
+            if (s.lyricsTranslate) ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                    tr(context,
+                        'Semua bahasa/region dideteksi otomatis. Pilih bahasa terjemahan:',
+                        'Any source language is auto-detected. Pick the target language:'),
+                    style: t.subtitleStyle.copyWith(fontSize: 9)),
+              ),
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                _chip(tr(context, 'Ikut bahasa app', 'Same as app'),
+                    s.lyricsLangSetting == 'auto',
+                    () => s.setLyricsLang('auto'), t),
+                for (final e in _lyricsLangs.entries)
+                  _chip(e.value, s.lyricsLangSetting == e.key,
+                      () => s.setLyricsLang(e.key), t),
+              ]),
+              const SizedBox(height: 8),
+            ],
+            _switchRow(
                 tr(context, 'Cek pembaruan otomatis', 'Check for updates automatically'),
                 s.autoUpdate,
                 s.setAutoUpdate,
@@ -387,6 +411,30 @@ class _SettingsPanelState extends State<SettingsPanel> {
         ),
     ]);
   }
+
+  static const _lyricsLangs = <String, String>{
+    'id': 'Indonesia',
+    'en': 'English',
+    'ja': '日本語',
+    'ko': '한국어',
+    'zh-CN': '简体中文',
+    'zh-TW': '繁體中文',
+    'ar': 'العربية',
+    'hi': 'हिन्दी',
+    'th': 'ไทย',
+    'vi': 'Tiếng Việt',
+    'ms': 'Melayu',
+    'tl': 'Filipino',
+    'es': 'Español',
+    'pt': 'Português',
+    'fr': 'Français',
+    'de': 'Deutsch',
+    'it': 'Italiano',
+    'nl': 'Nederlands',
+    'ru': 'Русский',
+    'tr': 'Türkçe',
+    'pl': 'Polski',
+  };
 
   Widget _label(String text, IslandTheme t) => Text(
         text,

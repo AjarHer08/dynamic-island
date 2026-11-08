@@ -97,7 +97,9 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
     final notif = context.read<NotificationProvider>();
     final dnd = context.read<DndProvider>()..load();
     final alarms = context.read<AlarmProvider>();
-    context.read<LyricsProvider>().bind(context.read<MusicProvider>());
+    context.read<LyricsProvider>()
+      ..bindSettings(context.read<SettingsProvider>())
+      ..bind(context.read<MusicProvider>());
     final well = context.read<WellnessProvider>();
 
     ReplyBridge.start(); // jembatan ke ekstensi WA Web

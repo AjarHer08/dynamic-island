@@ -15,9 +15,9 @@ class LyricsPanel extends StatefulWidget {
 }
 
 class _LyricsPanelState extends State<LyricsPanel> {
-  static const _h = 34.0; // tinggi tiap baris lirik
   final _c = ScrollController();
   int _lastIdx = -2;
+  double _lastH = 0;
 
   @override
   void dispose() {
@@ -31,6 +31,9 @@ class _LyricsPanelState extends State<LyricsPanel> {
     final music = context.watch<MusicProvider>();
     final t = context.watch<SettingsProvider>().theme;
     final l10n = AppLocalizations.of(context)!;
+    final settings = context.watch<SettingsProvider>();
+    final showTr = lyrics.hasTranslation;
+    final h = showTr ? 58.0 : 34.0; // tinggi tiap baris lirik
 
     Widget message(String text, {bool spinner = false}) => Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -62,20 +65,40 @@ class _LyricsPanelState extends State<LyricsPanel> {
             'Tidak ada internet dan lirik belum tersimpan.\nTaruh file .lrc dengan nama sama di folder lagu.',
             'No internet and no saved lyrics.\nPut a .lrc file with the same name next to the song.'));
       case LyricsState.plain:
+        final pl = lyrics.plainLines;
         body = SingleChildScrollView(
-          child: Text(lyrics.plain,
-              textAlign: TextAlign.center,
-              style: t.titleStyle.copyWith(
-                  fontSize: 13, height: 1.6, fontWeight: FontWeight.w400)),
+          child: Column(children: [
+            for (var i = 0; i < pl.length; i++) ...[
+              SizedBox(
+                width: double.infinity,
+                child: Text(pl[i],
+                    textAlign: TextAlign.center,
+                    style: t.titleStyle.copyWith(
+                        fontSize: 13, height: 1.6, fontWeight: FontWeight.w400)),
+              ),
+              if (lyrics.translationAt(i) != null)
+                SizedBox(
+                  width: double.infinity,
+                  child: Text(lyrics.translationAt(i)!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.4,
+                          fontStyle: FontStyle.italic,
+                          color: t.accentColor.withValues(alpha: 0.8))),
+                ),
+            ],
+          ]),
         );
       case LyricsState.synced:
         body = LayoutBuilder(builder: (context, box) {
           final idx = lyrics.indexAt(music.position);
-          if (idx != _lastIdx) {
+          if (idx != _lastIdx || h != _lastH) {
             _lastIdx = idx;
+            _lastH = h;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!_c.hasClients) return;
-              final target = (idx < 0 ? 0 : idx) * _h;
+              final target = (idx < 0 ? 0 : idx) * h;
               _c.animateTo(
                 target.clamp(0.0, _c.position.maxScrollExtent).toDouble(),
                 duration: const Duration(milliseconds: 350),
@@ -83,10 +106,10 @@ class _LyricsPanelState extends State<LyricsPanel> {
               );
             });
           }
-          final pad = (box.maxHeight - _h) / 2;
+          final pad = (box.maxHeight - h) / 2;
           return ListView.builder(
             controller: _c,
-            itemExtent: _h,
+            itemExtent: h,
             padding: EdgeInsets.symmetric(vertical: pad < 0 ? 0 : pad),
             itemCount: lyrics.lines.length,
             itemBuilder: (_, i) {
@@ -94,18 +117,33 @@ class _LyricsPanelState extends State<LyricsPanel> {
               final d = (i - idx).abs();
               final current = i == idx;
               final opacity = current ? 1.0 : (d == 1 ? 0.6 : (d == 2 ? 0.4 : 0.25));
+              final tl = lyrics.translationAt(i);
               return Center(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
-                  child: Text(
-                    line.text.isEmpty ? '♪' : line.text,
-                    style: TextStyle(
-                      fontSize: current ? 17 : 13,
-                      fontWeight: current ? FontWeight.w700 : FontWeight.w400,
-                      color: (current ? t.accentColor : Colors.white)
-                          .withValues(alpha: opacity),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text(
+                      line.text.isEmpty ? '♪' : line.text,
+                      style: TextStyle(
+                        fontSize: current ? 17 : 13,
+                        fontWeight: current ? FontWeight.w700 : FontWeight.w400,
+                        color: (current ? t.accentColor : Colors.white)
+                            .withValues(alpha: opacity),
+                      ),
                     ),
-                  ),
+                    if (tl != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          tl,
+                          style: TextStyle(
+                            fontSize: current ? 13 : 11,
+                            fontStyle: FontStyle.italic,
+                            color: Colors.white.withValues(alpha: opacity * 0.85),
+                          ),
+                        ),
+                      ),
+                  ]),
                 ),
               );
             },
@@ -122,7 +160,32 @@ class _LyricsPanelState extends State<LyricsPanel> {
             Icon(Icons.lyrics, size: 14, color: t.accentColor),
             const SizedBox(width: 6),
             Text(l10n.lyrics, style: t.subtitleStyle.copyWith(letterSpacing: 1)),
-            const SizedBox(width: 10),
+            const SizedBox(width: 6),
+            Tooltip(
+              message: settings.lyricsTranslate
+                  ? tr(context, 'Terjemahan: nyala (${settings.lyricsTargetLang})',
+                      'Translation: on (${settings.lyricsTargetLang})')
+                  : tr(context, 'Terjemahan: mati', 'Translation: off'),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => settings.setLyricsTranslate(!settings.lyricsTranslate),
+                child: Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: lyrics.translating
+                      ? SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 1.6, color: t.accentColor))
+                      : Icon(Icons.translate,
+                          size: 15,
+                          color: settings.lyricsTranslate
+                              ? t.accentColor
+                              : Colors.white38),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 music.hasTrack ? '${music.title} - ${music.artist}' : '',

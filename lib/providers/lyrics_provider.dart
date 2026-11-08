@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'music_provider.dart';
+import 'settings_provider.dart';
 
 class _SkipNetwork implements Exception {
   const _SkipNetwork();
@@ -31,9 +32,47 @@ class LyricsProvider extends ChangeNotifier {
   int _gen = 0;
   MusicProvider? _music;
 
+  // ---- terjemahan ----
+  SettingsProvider? _settings;
+  String _trKey = '';
+  int _trGen = 0;
+  bool _translating = false;
+  List<String> _trLines = const [];
+
   LyricsState get state => _state;
   List<LyricLine> get lines => _lines;
   String get plain => _plain;
+  bool get translating => _translating;
+
+  /// Baris lirik polos (untuk mode non-sinkron).
+  List<String> get plainLines => _plain.split('\n');
+
+  /// Terjemahan untuk baris ke-[i] (lirik tersinkron / polos), atau null.
+  String? translationAt(int i) {
+    if (i < 0 || i >= _trLines.length) return null;
+    final t = _trLines[i].trim();
+    return t.isEmpty ? null : t;
+  }
+
+  bool get hasTranslation => _trLines.any((e) => e.trim().isNotEmpty);
+
+  void bindSettings(SettingsProvider s) {
+    _settings?.removeListener(_onSettings);
+    _settings = s..addListener(_onSettings);
+    _trKey = _curKey();
+  }
+
+  String _curKey() {
+    final s = _settings;
+    return s == null ? '' : '${s.lyricsTranslate}|${s.lyricsTargetLang}';
+  }
+
+  void _onSettings() {
+    final k = _curKey();
+    if (k == _trKey) return;
+    _trKey = k;
+    _translateCurrent();
+  }
 
   void bind(MusicProvider m) {
     _music?.removeListener(_onMusic);
@@ -51,6 +90,9 @@ class LyricsProvider extends ChangeNotifier {
         _state = LyricsState.idle;
         _lines = const [];
         _plain = '';
+        _trGen++;
+        _trLines = const [];
+        _translating = false;
         notifyListeners();
       }
       return;
@@ -127,6 +169,7 @@ class LyricsProvider extends ChangeNotifier {
         _state = LyricsState.plain;
       }
       notifyListeners();
+      _translateCurrent();
       return true;
     }
     return false;
@@ -186,6 +229,9 @@ class LyricsProvider extends ChangeNotifier {
     _state = LyricsState.loading;
     _lines = const [];
     _plain = '';
+    _trGen++;
+    _trLines = const [];
+    _translating = false;
     notifyListeners();
 
     final track = _cleanTitle(title);
@@ -264,6 +310,169 @@ class LyricsProvider extends ChangeNotifier {
       }
     }
     notifyListeners();
+    _translateCurrent();
+  }
+
+  // ---------------------------------------------------------------------
+  // Terjemahan lirik (Google Translate endpoint gratis, tanpa API key).
+  // Bahasa sumber dideteksi otomatis sehingga semua region/bahasa didukung.
+  // ---------------------------------------------------------------------
+
+  static String _primary(String code) =>
+      code.toLowerCase().split(RegExp(r'[-_]')).first;
+
+  static File? _trCacheFile(String key) => _cacheFile('tr', key);
+
+  static int _hash(String key) {
+    var h = 5381;
+    for (final c in key.codeUnits) {
+      h = ((h * 33) ^ c) & 0x7fffffff;
+    }
+    return h;
+  }
+
+  Future<void> _translateCurrent() async {
+    final id = ++_trGen;
+    final s = _settings;
+    final List<String> src;
+    if (_state == LyricsState.synced) {
+      src = _lines.map((e) => e.text).toList();
+    } else if (_state == LyricsState.plain) {
+      src = plainLines;
+    } else {
+      src = const [];
+    }
+    if (s == null || !s.lyricsTranslate || src.every((e) => e.trim().isEmpty)) {
+      if (_translating || _trLines.isNotEmpty) {
+        _translating = false;
+        _trLines = const [];
+        notifyListeners();
+      }
+      return;
+    }
+    final target = s.lyricsTargetLang;
+    _trLines = const [];
+    _translating = true;
+    notifyListeners();
+
+    List<String>? result;
+    try {
+      final key = '$target|${_hash(src.join('\n'))}|${src.length}';
+      final cache = _trCacheFile(key);
+      if (cache != null) {
+        final t = await _readText(cache.path);
+        if (t != null) {
+          try {
+            final j = jsonDecode(t);
+            if (j is List && j.length == src.length) {
+              result = j.map((e) => '$e').toList();
+            }
+          } catch (_) {}
+        }
+      }
+      if (result == null) {
+        result = await _translateAll(src, target);
+        if (result != null && cache != null) {
+          try {
+            await cache.parent.create(recursive: true);
+            await cache.writeAsString(jsonEncode(result));
+          } catch (_) {}
+        }
+      }
+    } catch (_) {
+      result = null;
+    }
+    if (id != _trGen) return; // lagu/pengaturan sudah berganti
+    _translating = false;
+    _trLines = result ?? const [];
+    notifyListeners();
+  }
+
+  /// Terjemahkan semua baris. Mengembalikan daftar sepanjang [src] (baris
+  /// kosong / yang sudah berbahasa tujuan menjadi ''), atau null jika gagal.
+  Future<List<String>?> _translateAll(List<String> src, String target) async {
+    final idx = <int>[
+      for (var i = 0; i < src.length; i++)
+        if (src[i].trim().isNotEmpty) i
+    ];
+    final out = List<String>.filled(src.length, '');
+    var pos = 0;
+    var any = false;
+    while (pos < idx.length) {
+      // Kelompokkan baris hingga ~1800 karakter per permintaan.
+      final chunk = <int>[];
+      var len = 0;
+      while (pos < idx.length && (chunk.isEmpty || len + src[idx[pos]].length < 1800)) {
+        chunk.add(idx[pos]);
+        len += src[idx[pos]].length + 1;
+        pos++;
+      }
+      final texts = chunk.map((i) => src[i].replaceAll('\n', ' ').trim()).toList();
+      final r = await _translateChunk(texts, target);
+      if (r == null) {
+        if (!any) return null;
+        continue; // sebagian berhasil: tampilkan yang ada
+      }
+      any = true;
+      for (var k = 0; k < chunk.length; k++) {
+        final o = texts[k];
+        final t = r[k].trim();
+        // Sembunyikan jika hasilnya identik (baris sudah dalam bahasa tujuan).
+        out[chunk[k]] = t.toLowerCase() == o.toLowerCase() ? '' : t;
+      }
+    }
+    return any ? out : null;
+  }
+
+  /// Satu permintaan; jika jumlah baris hasil tidak cocok, ulangi per baris.
+  Future<List<String>?> _translateChunk(List<String> texts, String target) async {
+    final joined = await _gtx(texts.join('\n'), target);
+    if (joined == null) return null;
+    final parts = joined.split('\n');
+    if (parts.length == texts.length) return parts;
+    // Fallback: per baris, 4 permintaan paralel.
+    final res = List<String>.filled(texts.length, '');
+    var ok = false;
+    for (var i = 0; i < texts.length; i += 4) {
+      final end = (i + 4 < texts.length) ? i + 4 : texts.length;
+      final got = await Future.wait(
+          [for (var k = i; k < end; k++) _gtx(texts[k], target)]);
+      for (var k = 0; k < got.length; k++) {
+        if (got[k] != null) {
+          res[i + k] = got[k]!.replaceAll('\n', ' ');
+          ok = true;
+        }
+      }
+    }
+    return ok ? res : null;
+  }
+
+  Future<String?> _gtx(String text, String target) async {
+    final uri = Uri.https('translate.googleapis.com', '/translate_a/single', {
+      'client': 'gtx',
+      'sl': 'auto',
+      'tl': target,
+      'dt': 't',
+      'dj': '0',
+    });
+    try {
+      final res = await http
+          .post(uri, headers: _headers, body: {'q': text})
+          .timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) return null;
+      final j = jsonDecode(utf8.decode(res.bodyBytes));
+      if (j is! List || j.isEmpty || j[0] is! List) return null;
+      final sb = StringBuffer();
+      for (final seg in j[0] as List) {
+        if (seg is List && seg.isNotEmpty && seg[0] is String) sb.write(seg[0]);
+      }
+      // Lagu yang sudah berbahasa tujuan tidak perlu diterjemahkan.
+      final det = j.length > 2 && j[2] is String ? j[2] as String : '';
+      if (det.isNotEmpty && _primary(det) == _primary(target)) return text;
+      return sb.toString();
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<LyricLine> _parseLrc(String lrc) {
@@ -288,6 +497,7 @@ class LyricsProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _settings?.removeListener(_onSettings);
     _music?.removeListener(_onMusic);
     super.dispose();
   }

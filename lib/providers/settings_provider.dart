@@ -27,6 +27,8 @@ class SettingsProvider extends ChangeNotifier {
   int _idleSeconds = 20;
   bool _hideOnVideo = true;
   bool _autoUpdate = true;
+  bool _lyricsTranslate = true;
+  String _lyricsLang = 'auto'; // 'auto' = ikut bahasa aplikasi
   bool _glass = true; // efek liquid glass, bisa dipadukan dengan gaya apa pun
   Timer? _saveTimer;
 
@@ -52,6 +54,12 @@ class SettingsProvider extends ChangeNotifier {
   int get idleSeconds => _idleSeconds;
   bool get hideOnVideo => _hideOnVideo;
   bool get autoUpdate => _autoUpdate;
+  bool get lyricsTranslate => _lyricsTranslate;
+  String get lyricsLangSetting => _lyricsLang;
+
+  /// Bahasa tujuan terjemahan lirik (kode ISO, mis. 'id', 'en', 'zh-CN').
+  String get lyricsTargetLang =>
+      _lyricsLang == 'auto' ? _locale.languageCode : _lyricsLang;
   bool get hasCustomSize =>
       _pillW != null || _pillH != null || _expW != null ||
       _expH != null || _rPill != null || _rExp != null;
@@ -108,6 +116,8 @@ class SettingsProvider extends ChangeNotifier {
     _idleSeconds = (p.getInt('idle_seconds') ?? 20).clamp(5, 300).toInt();
     _hideOnVideo = p.getBool('hide_on_video') ?? true;
     _autoUpdate = p.getBool('auto_update') ?? true;
+    _lyricsTranslate = p.getBool('lyrics_translate') ?? true;
+    _lyricsLang = p.getString('lyrics_lang') ?? 'auto';
     // Set ukuran pill secara eksplisit, lalu posisikan berdasarkan ukuran itu
     // (jangan bergantung pada getSize yang bisa belum terbarui).
     final t = theme;
@@ -207,6 +217,20 @@ class SettingsProvider extends ChangeNotifier {
     _autoUpdate = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool('auto_update', v);
+    notifyListeners();
+  }
+
+  Future<void> setLyricsTranslate(bool v) async {
+    _lyricsTranslate = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('lyrics_translate', v);
+    notifyListeners();
+  }
+
+  Future<void> setLyricsLang(String code) async {
+    _lyricsLang = code;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('lyrics_lang', code);
     notifyListeners();
   }
 
