@@ -30,6 +30,7 @@ import '../widgets/panels/music_panel.dart';
 import '../widgets/panels/notification_panel.dart';
 import '../widgets/panels/performance_panel.dart';
 import '../widgets/panels/reminder_dnd_panel.dart';
+import '../widgets/panels/tasks_panel.dart';
 import '../widgets/panels/settings_panel.dart';
 import '../widgets/panels/weather_alarm_panel.dart';
 import '../widgets/visualizers/adaptive_visualizer.dart';
@@ -41,6 +42,7 @@ enum _Tab {
   weatherAlarm,
   calendar,
   reminderDnd,
+  tasks,
   battery,
   performance,
   settings,
@@ -625,6 +627,7 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
       _Tab.weatherAlarm => id ? 'cuaca' : 'weather',
       _Tab.calendar => id ? 'kalender' : 'calendar',
       _Tab.reminderDnd => id ? 'pengingat' : 'reminders',
+      _Tab.tasks => id ? 'tugas' : 'tasks',
       _Tab.battery => id ? 'baterai' : 'battery',
       _Tab.performance => id ? 'performa' : 'performance',
       _Tab.settings => id ? 'pengaturan' : 'settings',
@@ -668,6 +671,7 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
         _Tab.weatherAlarm => const WeatherAlarmPanel(),
         _Tab.calendar => const CalendarPanel(),
         _Tab.reminderDnd => const ReminderDndPanel(),
+        _Tab.tasks => const TasksPanel(),
         _Tab.battery => const BatteryPanel(),
         _Tab.performance => const PerformancePanel(),
         _Tab.settings => const SettingsPanel(),
