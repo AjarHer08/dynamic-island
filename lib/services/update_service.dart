@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Versi aplikasi ini. Samakan dengan `version:` di pubspec.yaml saat rilis.
-const kAppVersion = '1.1.5';
+const kAppVersion = '1.1.7';
 
 /// Repositori GitHub tempat rilis diunggah.
 const kRepo = 'AjarHer08/dynamic-island';

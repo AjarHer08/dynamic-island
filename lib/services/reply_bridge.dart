@@ -24,6 +24,9 @@ class ReplyBridge {
   static final _pending = <int, Completer<Map<String, dynamic>>>{};
   static int _seq = 0;
 
+  /// Pesan dari ekstensi yang bukan jawaban perintah (mis. panggilan masuk).
+  static void Function(Map<String, dynamic> msg)? onEvent;
+
   static bool get connected => _clients.isNotEmpty;
 
   static Future<void> start() async {
@@ -47,7 +50,12 @@ class ReplyBridge {
               try {
                 final m = jsonDecode(data as String);
                 if (m is Map<String, dynamic>) {
-                  _pending.remove(m['id'])?.complete(m);
+                  final c = _pending.remove(m['id']);
+                  if (c != null) {
+                    c.complete(m);
+                  } else if (m['type'] is String) {
+                    onEvent?.call(m);
+                  }
                 }
               } catch (_) {}
             },
@@ -74,6 +82,31 @@ class ReplyBridge {
     }
     try {
       final r = await c.future.timeout(const Duration(seconds: 20));
+      return BridgeResult(
+        connected: true,
+        ok: r['ok'] == true,
+        error: (r['error'] ?? '').toString(),
+      );
+    } on TimeoutException {
+      _pending.remove(id);
+      return const BridgeResult(
+          connected: true, error: 'Ekstensi tidak merespons (timeout).');
+    }
+  }
+
+  /// Terima / tolak panggilan WhatsApp Web yang sedang berdering.
+  /// [action] = 'accept' atau 'reject'.
+  static Future<BridgeResult> callAction(String action) async {
+    if (_clients.isEmpty) return const BridgeResult(connected: false);
+    final id = ++_seq;
+    final c = Completer<Map<String, dynamic>>();
+    _pending[id] = c;
+    final msg = jsonEncode({'id': id, 'type': 'wa-call-action', 'action': action});
+    for (final ws in List.of(_clients)) {
+      ws.add(msg);
+    }
+    try {
+      final r = await c.future.timeout(const Duration(seconds: 6));
       return BridgeResult(
         connected: true,
         ok: r['ok'] == true,

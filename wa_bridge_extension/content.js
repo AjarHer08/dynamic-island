@@ -115,6 +115,79 @@ async function handleSend({ chat, text }) {
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------
+// Panggilan masuk: cari tombol Terima + Tolak di popup panggilan WhatsApp Web.
+// Pencarian berdasarkan label tombol (ID/EN), bukan class CSS yang berubah-ubah.
+// ---------------------------------------------------------------------
+const ACCEPT_RE = /^(accept|answer|terima|jawab)(\s+(call|panggilan))?$/i;
+const DECLINE_RE = /^(decline|reject|tolak)(\s+(call|panggilan))?$/i;
+const CALL_WORDS = /call|panggilan|calling|memanggil|menelepon/i;
+const labelOf = (el) =>
+  (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '').trim();
+
+function findCall() {
+  let accept = null, decline = null;
+  for (const el of document.querySelectorAll('button, [role="button"]')) {
+    const l = labelOf(el);
+    if (!l || l.length > 24) continue;
+    if (!accept && ACCEPT_RE.test(l)) accept = el;
+    else if (!decline && DECLINE_RE.test(l)) decline = el;
+  }
+  if (!accept || !decline) return null;
+
+  // Kedua tombol harus satu popup, dan popup itu menyebut "call/panggilan"
+  // (supaya dialog "Terima/Tolak" lain tidak dikira panggilan).
+  let box = accept;
+  while (box && !box.contains(decline)) box = box.parentElement;
+  if (!box || box === document.body) return null;
+  let ctx = box;
+  for (let i = 0; i < 3 && ctx.parentElement && ctx.parentElement !== document.body; i++) {
+    ctx = ctx.parentElement;
+  }
+  const text = (ctx.innerText || '').trim();
+  if (!CALL_WORDS.test(text)) return null;
+
+  const lines = text
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((l) => l && !ACCEPT_RE.test(l) && !DECLINE_RE.test(l));
+  const name =
+    lines.find((l) => !CALL_WORDS.test(l) && !/^whatsapp$/i.test(l) && l.length < 60) ||
+    'WhatsApp';
+  return { accept, decline, name, video: /video/i.test(text) };
+}
+
+function reportCall(m) {
+  try {
+    const p = browser.runtime.sendMessage(m);
+    if (p && p.catch) p.catch(() => {});
+  } catch (_) {}
+}
+
+let ringing = false;
+setInterval(() => {
+  let f = null;
+  try { f = findCall(); } catch (_) {}
+  if (f && !ringing) {
+    ringing = true;
+    reportCall({ type: 'wa-call', state: 'incoming', name: f.name, video: f.video });
+  } else if (!f && ringing) {
+    ringing = false;
+    reportCall({ type: 'wa-call', state: 'ended' });
+  }
+}, 800);
+
+function handleCallAction(action) {
+  const f = findCall();
+  if (!f) {
+    return { ok: false, error: 'Panggilan tidak ditemukan di WhatsApp Web (sudah berakhir?).' };
+  }
+  (action === 'accept' ? f.accept : f.decline).click();
+  return { ok: true };
+}
+
 browser.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.type === 'send') return handleSend(msg);
+  if (!msg) return;
+  if (msg.type === 'send') return handleSend(msg);
+  if (msg.type === 'call-action') return Promise.resolve(handleCallAction(msg.action));
 });

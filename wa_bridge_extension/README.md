@@ -17,3 +17,14 @@ perintah, dan mengisi + mengirim pesan di tab WA Web lewat DOM. Tidak ada data
 yang keluar dari komputermu.
 
 Bila ekstensi tidak tersambung, island kembali ke cara lama (xdotool).
+
+## Panggilan masuk (v1.1)
+Saat WhatsApp Web menampilkan popup panggilan masuk, ekstensi melaporkannya ke
+island. Tombol **Terima** / **Tolak** di island menekan tombol yang sama di
+WhatsApp Web. Syaratnya: tab web.whatsapp.com terbuka di Firefox dan ekstensi
+v1.1 terpasang (muat ulang add-on + tab WA Web setelah memperbarui).
+
+Tombol dikenali dari labelnya (Accept/Answer/Terima/Jawab dan
+Decline/Reject/Tolak), jadi bila WhatsApp mengubah tampilannya dan tombol tidak
+terdeteksi, panggilan tetap bisa dijawab langsung di tab WhatsApp Web. Untuk
+menerima panggilan, Firefox mungkin meminta izin mikrofon/kamera sekali.

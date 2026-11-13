@@ -102,6 +102,19 @@ class NotificationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Tahan notifikasi aktif tetap tampil (mis. pengguna sedang mengetik balasan).
+  void hold() => _autoDismiss?.cancel();
+
+  /// Lepas tahanan: notifikasi menutup sendiri setelah [after].
+  void release([Duration after = const Duration(seconds: 4)]) {
+    if (_active == null) return;
+    _autoDismiss?.cancel();
+    _autoDismiss = Timer(after, () {
+      _active = null;
+      notifyListeners();
+    });
+  }
+
   void dismiss() {
     _autoDismiss?.cancel();
     _active = null;

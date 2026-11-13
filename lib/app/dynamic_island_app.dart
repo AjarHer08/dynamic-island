@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../providers/alarm_provider.dart';
 import '../providers/battery_provider.dart';
+import '../providers/call_provider.dart';
 import '../providers/dnd_provider.dart';
 import '../providers/music_provider.dart';
 import '../providers/notification_provider.dart';
@@ -20,6 +21,7 @@ import '../services/auto_hide_service.dart';
 import '../services/update_service.dart';
 import '../services/sound_service.dart';
 import '../widgets/live_clock.dart';
+import '../widgets/message_banner.dart';
 import '../widgets/liquid_glass.dart';
 import '../theme/island_theme.dart';
 import '../providers/lyrics_provider.dart';
@@ -69,7 +71,7 @@ class DynamicIslandApp extends StatefulWidget {
 }
 
 class _DynamicIslandAppState extends State<DynamicIslandApp>
-    with SingleTickerProviderStateMixin, WindowListener, TrayListener {
+    with TickerProviderStateMixin, WindowListener, TrayListener {
   bool _expanded = false;
   _Tab _tab = _Tab.music;
   late final AnimationController _anim;
@@ -77,6 +79,15 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
   PageController? _pc; // dibuat ulang tiap island dibuka
   Size? _appliedBig; // ukuran window terakhir yang diterapkan saat terbuka
   bool _resizing = false;
+
+  // ---- panggilan masuk ----
+  static const _kCallSize = Size(380, 78);
+  static const _kMsgSize = Size(400, 120); // pesan baru + kolom balas
+  late final AnimationController _callAnim;
+  CallProvider? _calls;
+  NotificationProvider? _notifP;
+  Size? _bannerSize; // ukuran window banner yang sedang dipakai (null = tidak ada)
+  bool _callBusy = false, _callPending = false;
 
   @override
   void initState() {
@@ -86,6 +97,8 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
     _anim = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 320));
     _sizeAnim = CurvedAnimation(parent: _anim, curve: Curves.easeInOutCubic);
+    _callAnim = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 240));
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _wire());
   }
@@ -99,6 +112,37 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
     final notif = context.read<NotificationProvider>();
     final dnd = context.read<DndProvider>()..load();
     final alarms = context.read<AlarmProvider>();
+
+    // Panggilan masuk: dari ekstensi WA Bridge dan dari notifikasi desktop.
+    final calls = context.read<CallProvider>();
+    _calls = calls..addListener(_onBannerChanged);
+    _notifP = notif..addListener(_onBannerChanged);
+    calls.onLog = (caller, app, event) {
+      if (!mounted) return;
+      final id = _isId;
+      final text = switch (event) {
+        'accepted' => id ? 'Panggilan dijawab' : 'Call answered',
+        'rejected' => id ? 'Panggilan ditolak' : 'Call declined',
+        'ended' => id ? 'Panggilan masuk berakhir' : 'Incoming call ended',
+        'incoming' => id ? 'Panggilan masuk (DND)' : 'Incoming call (DND)',
+        _ => id ? 'Panggilan disembunyikan' : 'Call dismissed',
+      };
+      notif.push(sender: caller, body: text, app: app, silent: true);
+    };
+    ReplyBridge.onEvent = (m) {
+      if (m['type'] != 'wa-call') return;
+      if (m['state'] == 'incoming') {
+        calls.onIncoming(
+          caller: (m['name'] ?? '').toString(),
+          app: 'WhatsApp',
+          video: m['video'] == true,
+          bridge: true,
+          silent: dnd.enabled,
+        );
+      } else if (m['state'] == 'ended') {
+        calls.onEnded();
+      }
+    };
     context.read<LyricsProvider>()
       ..bindSettings(context.read<SettingsProvider>())
       ..bind(context.read<MusicProvider>());
@@ -118,8 +162,9 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
     ah.isActive = () =>
         _expanded ||
         notif.active != null ||
-        alarms.ringing != null;
-    ah.isUrgent = () => alarms.ringing != null;
+        alarms.ringing != null ||
+        calls.call != null;
+    ah.isUrgent = () => alarms.ringing != null || calls.call != null;
     ah.start();
 
     // Alarm: selalu berbunyi, bahkan saat DND.
@@ -170,6 +215,15 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
       if (a.contains('spotify') || a.contains('dynamic')) return;
       if (summary.isEmpty && body.isEmpty) return;
       final clean = body.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+      if (CallProvider.looksLikeCall(summary, clean)) {
+        calls.onIncoming(
+          caller: CallProvider.callerFrom(app, summary, clean),
+          app: app,
+          video: CallProvider.looksLikeVideo(summary, clean),
+          silent: dnd.enabled,
+        );
+        return;
+      }
       notif.push(
         sender: summary.isEmpty ? app : summary,
         body: clean,
@@ -185,12 +239,81 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
     trayManager.removeListener(this);
     _notifService.stop();
     SoundService.stop();
+    _calls?.removeListener(_onBannerChanged);
+    _notifP?.removeListener(_onBannerChanged);
+    ReplyBridge.onEvent = null;
+    _callAnim.dispose();
     _anim.dispose();
     _pc?.dispose();
     super.dispose();
   }
 
   bool _busy = false;
+
+  /// Ukuran banner yang dibutuhkan sekarang: panggilan masuk, atau pesan baru
+  /// (dengan kolom balas). null = cukup pill biasa, atau panel penuh terbuka
+  /// (banner panggilan tampil sebagai overlay di panel).
+  Size? _bannerTarget() {
+    if (_expanded) return null;
+    if (_calls?.call != null) return _kCallSize;
+    final a = _notifP?.active;
+    if (a != null && a.kind == NotifKind.message) return _kMsgSize;
+    return null;
+  }
+
+  void _onBannerChanged() {
+    if (!mounted) return;
+    if (_bannerTarget() == _bannerSize) return;
+    _syncBanner();
+  }
+
+  /// Jalankan animasi banner tanpa pernah menggantung bila animasi dibatalkan.
+  Future<void> _runBannerAnim(bool forward) async {
+    try {
+      await (forward ? _callAnim.forward() : _callAnim.reverse())
+          .orCancel
+          .timeout(const Duration(milliseconds: 800));
+    } catch (_) {}
+  }
+
+  /// Besarkan window ke ukuran banner, kecilkan lagi setelah selesai.
+  Future<void> _syncBanner() async {
+    if (_callBusy) {
+      _callPending = true;
+      return;
+    }
+    _callBusy = true;
+    try {
+      final s = context.read<SettingsProvider>();
+      for (var i = 0; i < 4 && mounted; i++) {
+        final target = _bannerTarget();
+        if (target == _bannerSize) break;
+        if (target != null) {
+          setState(() => _bannerSize = target);
+          await windowManager.setSize(target);
+          await s.reposition(size: target);
+          await _runBannerAnim(true);
+        } else {
+          await _runBannerAnim(false);
+          if (!mounted) break;
+          setState(() => _bannerSize = null);
+          if (!_expanded && !_busy && _bannerTarget() == null) {
+            final t = s.theme;
+            final pill = Size(t.pillWidth, t.pillHeight);
+            await windowManager.setSize(pill);
+            await s.reposition(size: pill);
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      _callBusy = false;
+      if (_callPending && mounted) {
+        _callPending = false;
+        _onBannerChanged();
+      }
+    }
+  }
 
   /// Tap pill: tutup popup/alarm yang aktif lalu buka panel yang relevan.
   void _onPillTap() {
@@ -219,6 +342,8 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
       final big = Size(t.expandedWidth, t.expandedHeight);
 
       if (!_expanded) {
+        _bannerSize = null; // panel penuh menggantikan ukuran banner
+        _callAnim.value = 0;
         _pc?.dispose();
         _pc = PageController(initialPage: _tab.index);
         context.read<BatteryProvider>().refresh();
@@ -245,6 +370,7 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
       }
     } finally {
       _busy = false;
+      _onBannerChanged(); // ada panggilan yang masih berdering?
     }
   }
 
@@ -366,6 +492,7 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
     final s = context.watch<SettingsProvider>();
     final music = context.watch<MusicProvider>();
     final notif = context.watch<NotificationProvider>();
+    final callP = context.watch<CallProvider>();
     final t = s.theme;
 
     if (_expanded &&
@@ -379,12 +506,47 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
     return Material(
       color: Colors.transparent,
       child: AnimatedBuilder(
-        animation: _sizeAnim,
+        animation: Listenable.merge([_sizeAnim, _callAnim]),
         builder: (_, __) {
-          final w = _lerp(t.pillWidth, t.expandedWidth, _sizeAnim.value);
-          final h = _lerp(t.pillHeight, t.expandedHeight, _sizeAnim.value);
-          final r = _lerp(t.borderRadius, t.expandedRadius, _sizeAnim.value);
-          final content = _expanded
+          var w = _lerp(t.pillWidth, t.expandedWidth, _sizeAnim.value);
+          var h = _lerp(t.pillHeight, t.expandedHeight, _sizeAnim.value);
+          var r = _lerp(t.borderRadius, t.expandedRadius, _sizeAnim.value);
+          final activeN = notif.active;
+          final showCall = callP.call != null && !_expanded;
+          final showMsg = !_expanded &&
+              !showCall &&
+              activeN != null &&
+              activeN.kind == NotifKind.message;
+          final bs = _bannerSize ?? (showMsg ? _kMsgSize : _kCallSize);
+          final cm = _expanded ? 0.0 : _callAnim.value;
+          if (cm > 0) {
+            w = _lerp(t.pillWidth, bs.width, cm);
+            h = _lerp(t.pillHeight, bs.height, cm);
+            r = _lerp(t.borderRadius, showMsg ? 22.0 : bs.height / 2.4, cm);
+          }
+          final content = showCall
+              ? OverflowBox(
+                  alignment: Alignment.center,
+                  minWidth: _kCallSize.width,
+                  maxWidth: _kCallSize.width,
+                  minHeight: _kCallSize.height,
+                  maxHeight: _kCallSize.height,
+                  child: _callBanner(t, callP, overlay: false),
+                )
+              : showMsg
+              ? OverflowBox(
+                  alignment: Alignment.center,
+                  minWidth: _kMsgSize.width,
+                  maxWidth: _kMsgSize.width,
+                  minHeight: _kMsgSize.height,
+                  maxHeight: _kMsgSize.height,
+                  child: MessageBanner(
+                      key: ValueKey(activeN.id),
+                      n: activeN,
+                      t: t,
+                      onOpen: _onPillTap),
+                )
+              : _expanded
               ? OverflowBox(
                   alignment: Alignment.topCenter,
                   minWidth: t.expandedWidth,
@@ -565,7 +727,22 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
   }
 
   /// Panel expanded: strip tab teks + halaman yang bisa digeser kiri/kanan.
-  Widget _expandedView(IslandTheme t) => Column(children: [
+  Widget _expandedView(IslandTheme t) => Stack(fit: StackFit.expand, children: [
+        _expandedBody(t),
+        Consumer<CallProvider>(
+          builder: (_, cp, __) => cp.call == null
+              ? const SizedBox.shrink()
+              : Positioned(
+                  top: 8,
+                  left: 10,
+                  right: 10,
+                  height: 72,
+                  child: _callBanner(t, cp, overlay: true),
+                ),
+        ),
+      ]);
+
+  Widget _expandedBody(IslandTheme t) => Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 14, 8, 6),
           child: Container(
@@ -661,6 +838,128 @@ class _DynamicIslandAppState extends State<DynamicIslandApp>
           ),
         ),
       ),
+    );
+  }
+
+  String _callNote(String note) {
+    final id = _isId;
+    return switch (note) {
+      'answered' => id ? 'Dijawab' : 'Answered',
+      'opened' =>
+        id ? 'Aplikasi dibuka, jawab di sana' : 'App opened, answer there',
+      'unsupported' =>
+        id ? 'Buka aplikasinya untuk menjawab' : 'Open the app to answer',
+      'rejected' => id ? 'Ditolak' : 'Declined',
+      'dismissed' => id
+          ? 'Disembunyikan; aplikasi mungkin masih berdering'
+          : 'Hidden; the app may keep ringing',
+      _ => note,
+    };
+  }
+
+  /// Banner panggilan masuk: nama penelepon + tombol Tolak (merah) dan
+  /// Terima (hijau). [overlay] = tampil di atas panel yang sedang terbuka.
+  Widget _callBanner(IslandTheme t, CallProvider cp, {required bool overlay}) {
+    final c = cp.call;
+    if (c == null) return const SizedBox.shrink();
+    final id = _isId;
+    final ringing = cp.phase == CallPhase.ringing;
+    final kind = c.video
+        ? (id ? 'Panggilan video' : 'Video call')
+        : (id ? 'Panggilan suara' : 'Voice call');
+    final sub = ringing ? '$kind  ·  ${c.app}' : _callNote(cp.note);
+    final initial =
+        c.caller.isEmpty ? '?' : String.fromCharCode(c.caller.runes.first).toUpperCase();
+    final isWa = c.app.toLowerCase().contains('whatsapp');
+    const red = Color(0xFFFF453A), green = Color(0xFF30D158);
+
+    Widget circle(Color color, IconData icon, VoidCallback? onTap, String tip,
+        {bool spin = false}) {
+      return Tooltip(
+        message: tip,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 10)
+              ],
+            ),
+            child: spin
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : Icon(icon, color: Colors.white, size: 22),
+          ),
+        ),
+      );
+    }
+
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(children: [
+        CircleAvatar(
+          radius: 20,
+          backgroundColor: isWa ? const Color(0xFF25D366) : t.chipFill,
+          child: Text(initial,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(c.caller,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text(sub,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: ringing ? Colors.white70 : t.accentColor,
+                      fontSize: 11.5,
+                      height: 1.25)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        if (ringing) ...[
+          circle(red, Icons.call_end, cp.busy ? null : cp.reject,
+              id ? 'Tolak panggilan' : 'Decline call'),
+          const SizedBox(width: 12),
+          circle(green, c.video ? Icons.videocam : Icons.call,
+              cp.busy ? null : cp.accept,
+              id ? 'Terima panggilan' : 'Accept call',
+              spin: cp.busy),
+        ] else
+          Icon(
+              cp.phase == CallPhase.answered ? Icons.check_circle : Icons.call_end,
+              color: cp.phase == CallPhase.answered ? green : red,
+              size: 28),
+      ]),
+    );
+
+    if (!overlay) return row;
+    return Container(
+      decoration: BoxDecoration(
+        color: t.expandedColor,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: t.accentColor.withValues(alpha: 0.5)),
+        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 12)],
+      ),
+      child: row,
     );
   }
 

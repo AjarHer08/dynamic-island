@@ -17,6 +17,7 @@ import 'providers/wellness_provider.dart';
 import 'providers/battery_provider.dart';
 import 'providers/performance_provider.dart';
 import 'providers/tasks_provider.dart';
+import 'providers/call_provider.dart';
 import 'services/update_service.dart';
 import 'app/dynamic_island_app.dart';
 
@@ -92,6 +93,7 @@ class DynamicIslandRoot extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => BatteryProvider()..start()),
         ChangeNotifierProvider(create: (_) => PerformanceProvider()),
         ChangeNotifierProvider(create: (_) => TasksProvider()..load()),
+        ChangeNotifierProvider(create: (_) => CallProvider()),
         ChangeNotifierProvider(create: (_) => UpdateService()),
       ],
       child: Consumer<SettingsProvider>(
