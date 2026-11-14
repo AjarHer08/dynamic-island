@@ -1,7 +1,7 @@
 name: dynamic_island
 description: Dynamic Island desktop overlay for Windows & Linux (4GB RAM / Intel HD optimised).
 publish_to: 'none'
-version: 1.1.7+11
+version: 1.1.8+12
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

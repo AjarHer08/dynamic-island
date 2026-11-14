@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Dynamic Island WA Bridge",
-  "version": "1.1",
+  "version": "1.2",
   "description": "Kirim balasan dan terima/tolak panggilan WhatsApp Web dari Dynamic Island tanpa membuka tab/jendela.",
   "permissions": ["tabs", "*://web.whatsapp.com/*"],
   "background": { "scripts": ["background.js"] },

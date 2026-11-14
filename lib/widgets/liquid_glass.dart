@@ -31,9 +31,10 @@ class LiquidGlassPainter extends CustomPainter {
     final rr = RRect.fromRectAndRadius(rect, Radius.circular(r));
     const clear = Color(0x00FFFFFF);
 
-    // 1. Tint dasar tembus pandang.
+    // 1. Tint dasar. Cukup pekat agar teks jendela di belakang island (mis.
+    //    browser) tidak tembus dan mengganggu bacaan.
     canvas.drawRRect(
-        rr, Paint()..color = tint.withValues(alpha: (opacity * 0.74).clamp(0.0, 1.0)));
+        rr, Paint()..color = tint.withValues(alpha: (0.60 + opacity * 0.36).clamp(0.0, 1.0)));
 
     canvas.save();
     canvas.clipRRect(rr);
